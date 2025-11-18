@@ -1,0 +1,50 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Scenario {
+  id               String        @id @default(uuid())
+  name             String        @unique
+  description      String?
+  targetType       TargetType    // db or api
+  targetConfigJson Json          // DB connection string or API base URL, headers, etc.
+  stepsJson        Json          // Array of steps to execute
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  runs             ScenarioRun[]
+
+  @@map("scenarios")
+}
+
+model ScenarioRun {
+  id         String           @id @default(uuid())
+  scenarioId String
+  scenario   Scenario         @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  startedAt  DateTime         @default(now())
+  finishedAt DateTime?
+  status     ScenarioRunStatus
+  logText    String?          @db.Text
+
+  @@map("scenario_runs")
+  @@index([scenarioId])
+}
+
+enum TargetType {
+  DB
+  API
+}
+
+enum ScenarioRunStatus {
+  RUNNING
+  SUCCESS
+  FAILED
+}

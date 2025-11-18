@@ -20,24 +20,171 @@ model Scenario {
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 
+  // Phase 3 enhancements
+  version          Int           @default(1)
+  isArchived       Boolean       @default(false)
+  metadata         Json?         // Flexible metadata storage
+  lastExecutedAt   DateTime?
+  executionCount   Int           @default(0)
+  successCount     Int           @default(0)
+
+  // Relations
   runs             ScenarioRun[]
+  tags             ScenarioTagRelation[]
+  schedules        ScenarioSchedule[]
+  templateId       String?
+  template         ScenarioTemplate? @relation("TemplateInstances", fields: [templateId], references: [id], onDelete: SetNull)
+  environmentId    String?
+  environment      Environment?  @relation(fields: [environmentId], references: [id], onDelete: SetNull)
+  dataSourceId     String?
+  dataSource       DataSource?   @relation(fields: [dataSourceId], references: [id], onDelete: SetNull)
 
   @@map("scenarios")
+  @@index([isArchived])
+  @@index([templateId])
+  @@index([environmentId])
+  @@index([dataSourceId])
 }
 
 model ScenarioRun {
-  id         String           @id @default(uuid())
-  scenarioId String
-  scenario   Scenario         @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
-  startedAt  DateTime         @default(now())
-  finishedAt DateTime?
-  status     ScenarioRunStatus
-  logText    String?          @db.Text
+  id           String           @id @default(uuid())
+  scenarioId   String
+  scenario     Scenario         @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  startedAt    DateTime         @default(now())
+  finishedAt   DateTime?
+  status       ScenarioRunStatus
+  logText      String?          @db.Text
+
+  // Phase 3 enhancements
+  duration     Int?             // Duration in milliseconds
+  errorDetails Json?            // Structured error information
+  environmentId String?
+  environment  Environment?     @relation(fields: [environmentId], references: [id], onDelete: SetNull)
+  triggeredBy  String?          // "manual", "schedule", "api", "cli"
+  scheduleId   String?
+  schedule     ScenarioSchedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
 
   @@map("scenario_runs")
   @@index([scenarioId])
+  @@index([status])
+  @@index([startedAt])
+  @@index([environmentId])
+  @@index([scheduleId])
 }
 
+// Phase 3: Template Management
+model ScenarioTemplate {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  targetType  TargetType
+  parametersSchema Json  // JSON schema for parameters
+  stepsTemplate    Json  // Template with {{param.name}} placeholders
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   String?  // Future: user who created it
+
+  scenarios   Scenario[] @relation("TemplateInstances")
+
+  @@map("scenario_templates")
+}
+
+// Phase 3: Environment Management
+model Environment {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  variables   Json     // Environment-specific variables
+  isActive    Boolean  @default(true)
+  priority    Int      @default(0) // For ordering (dev=0, staging=1, prod=2)
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  scenarios   Scenario[]
+  runs        ScenarioRun[]
+  schedules   ScenarioSchedule[]
+
+  @@map("environments")
+  @@index([isActive])
+}
+
+// Phase 3: Data Source Registry
+model DataSource {
+  id               String         @id @default(uuid())
+  name             String         @unique
+  type             DataSourceType
+  connectionConfig Json           // Encrypted connection details
+  description      String?
+  isActive         Boolean        @default(true)
+  lastTestedAt     DateTime?
+  testStatus       String?        // "healthy", "unhealthy", "unknown"
+  metadata         Json?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  scenarios        Scenario[]
+
+  @@map("data_sources")
+  @@index([type])
+  @@index([isActive])
+}
+
+// Phase 3: Tag System
+model Tag {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  color     String?  // Hex color for UI
+  category  String?  // For grouping tags
+  createdAt DateTime @default(now())
+
+  scenarios ScenarioTagRelation[]
+
+  @@map("tags")
+  @@index([category])
+}
+
+model ScenarioTagRelation {
+  id         String   @id @default(uuid())
+  scenarioId String
+  tagId      String
+  scenario   Scenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  tag        Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([scenarioId, tagId])
+  @@map("scenario_tags")
+  @@index([scenarioId])
+  @@index([tagId])
+}
+
+// Phase 3: Scheduling System
+model ScenarioSchedule {
+  id          String   @id @default(uuid())
+  scenarioId  String
+  scenario    Scenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  cronExpression String // Cron format
+  timezone    String   @default("UTC")
+  isActive    Boolean  @default(true)
+  description String?
+  nextRunAt   DateTime?
+  lastRunAt   DateTime?
+  environmentId String?
+  environment Environment? @relation(fields: [environmentId], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  runs        ScenarioRun[]
+
+  @@map("scenario_schedules")
+  @@index([scenarioId])
+  @@index([isActive])
+  @@index([nextRunAt])
+}
+
+// Enums
 enum TargetType {
   DB
   API
@@ -47,4 +194,14 @@ enum ScenarioRunStatus {
   RUNNING
   SUCCESS
   FAILED
+}
+
+enum DataSourceType {
+  POSTGRESQL
+  MYSQL
+  MONGODB
+  REDIS
+  HTTP_API
+  GRAPHQL_API
+  REST_API
 }

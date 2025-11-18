@@ -7,4 +7,11 @@ dist/
 .idea/
 *.swp
 *.swo
-prisma/migrations/
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Prisma
+prisma/dev.db
+prisma/dev.db-journal

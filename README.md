@@ -2,110 +2,233 @@
 
 A central service to define and apply reusable test data scenarios to different databases or APIs.
 
-## Features
+## Overview
 
-- **Scenario Definition**: Define reusable test data scenarios with sequences of operations
-- **Multiple Adapters**: Support for PostgreSQL databases and HTTP APIs
-- **CLI Tool**: Execute scenarios from the command line
-- **REST API**: Manage scenarios via HTTP endpoints
-- **Execution History**: Track all scenario runs with detailed logs
-- **Template Variables**: Use dynamic values across steps with `{{variable}}` syntax
+Test Data Factory Service provides a structured way to create, manage, and execute test data scenarios. It supports both database operations (PostgreSQL) and HTTP API testing, with a powerful template variable system for data chaining across steps.
+
+Perfect for:
+- **QA Teams**: Quickly set up consistent test environments
+- **Developers**: Seed databases with realistic data for local development
+- **CI/CD Pipelines**: Automate test data provisioning
+- **Demo Environments**: Create reproducible demo scenarios
 
 ## Tech Stack
 
 - **Backend**: Fastify + TypeScript
-- **Database**: Prisma + PostgreSQL
-- **Adapters**: PostgreSQL and HTTP API
+- **Database**: Prisma ORM + PostgreSQL
+- **Adapters**: PostgreSQL (via pg) and HTTP API (via fetch)
 - **CLI**: Commander.js
+- **Testing**: Vitest with 24 test cases
+- **Deployment**: Docker + Docker Compose
+
+## Domain Model
+
+### Core Entities
+
+**Scenario**
+- Represents a test data scenario with a sequence of operations
+- Fields: `id`, `name`, `description`, `targetType` (DB/API), `targetConfigJson`, `stepsJson`
+- Can target either a database or an HTTP API
+- Supports template variables for dynamic data (`{{variable.path}}`)
+
+**ScenarioRun**
+- Tracks each execution of a scenario
+- Fields: `id`, `scenarioId`, `startedAt`, `finishedAt`, `status`, `logText`
+- Status: `RUNNING`, `SUCCESS`, or `FAILED`
+- Stores complete execution logs for debugging
+
+### Relationships
+
+- One Scenario has many ScenarioRuns (one-to-many)
+- ScenarioRuns cascade delete when Scenario is deleted
 
 ## Getting Started
 
-### Prerequisites
+### Requirements
 
-- Node.js 18+
-- Docker and Docker Compose (for PostgreSQL)
+- Node.js 18 or higher
+- Docker and Docker Compose
+- PostgreSQL 16 (via Docker)
 
-### Installation
+### Setup Steps
 
-1. Clone the repository:
+#### Option 1: Docker Compose (Recommended)
+
 ```bash
+# 1. Clone and navigate
 git clone <repository-url>
 cd test-data-factory-service
-```
 
-2. Install dependencies:
-```bash
+# 2. Copy environment file
+cp .env.example .env
+
+# 3. Install dependencies
 npm install
+
+# 4. Start all services (PostgreSQL + App)
+docker compose up -d
+
+# 5. Run migrations
+npm run db:migrate
+
+# 6. Seed example scenarios (optional)
+npm run db:seed
 ```
 
-3. Start PostgreSQL:
-```bash
-docker-compose up -d
-```
+The API will be available at `http://localhost:3000`.
 
-4. Set up the database:
+#### Option 2: Local Development
+
 ```bash
+# 1. Clone and navigate
+git clone <repository-url>
+cd test-data-factory-service
+
+# 2. Install dependencies
+npm install
+
+# 3. Start PostgreSQL only
+docker compose up -d postgres
+
+# 4. Generate Prisma client and run migrations
 npm run prisma:generate
-npm run prisma:migrate
-```
+npm run db:migrate
 
-5. Start the server:
-```bash
+# 5. Seed example scenarios (optional)
+npm run db:seed
+
+# 6. Start development server
 npm run dev
 ```
 
-The server will be running at `http://localhost:3000`.
+The API will be available at `http://localhost:3000`.
 
-## Usage
+### Quick Commands
 
-### CLI Commands
-
-#### List all scenarios
 ```bash
-npm run cli list
+# Development
+npm run dev              # Start dev server with hot reload
+npm run build            # Build for production
+npm start                # Start production server
+
+# Database
+npm run db:migrate       # Run Prisma migrations
+npm run db:push          # Push schema changes (dev only)
+npm run db:seed          # Seed example scenarios
+npm run prisma:studio    # Open Prisma Studio
+
+# Testing
+npm test                 # Run all tests
+npm run test:watch       # Run tests in watch mode
+npm run test:coverage    # Generate coverage report
+
+# Code Quality
+npm run lint             # Lint TypeScript files
+npm run lint:fix         # Fix linting issues
+npm run format           # Format code with Prettier
+
+# CLI
+npm run cli list         # List all scenarios
+npm run cli run <name>   # Execute a scenario
+npm run cli history <name> --limit 10  # View execution history
+npm run cli logs <runId> # View run logs
 ```
 
-#### Run a scenario
+## Example Flow: Vertical Slice
+
+Here's a complete end-to-end workflow demonstrating the core features:
+
+### 1. Create a Scenario
+
 ```bash
-npm run cli run <scenarioName> --env test
+curl -X POST http://localhost:3000/scenarios \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "demo-saas-tenant",
+    "description": "Create a demo SaaS tenant with users",
+    "targetType": "DB",
+    "targetConfigJson": {
+      "connectionString": "postgresql://postgres:postgres@localhost:5432/test_db"
+    },
+    "stepsJson": [
+      {
+        "type": "db:insert",
+        "table": "tenants",
+        "values": {
+          "id": "tenant-001",
+          "name": "Acme Corp",
+          "plan": "enterprise"
+        }
+      },
+      {
+        "type": "db:insert",
+        "table": "users",
+        "values": {
+          "tenant_id": "{{tenants_last_insert.id}}",
+          "email": "admin@acme.com",
+          "name": "Admin User"
+        }
+      }
+    ]
+  }'
 ```
 
-#### View execution history
+### 2. List All Scenarios
+
 ```bash
-npm run cli history <scenarioName> --limit 10
+curl http://localhost:3000/scenarios
 ```
 
-#### View logs for a run
+### 3. Get Scenario Details
+
 ```bash
-npm run cli logs <runId>
+curl http://localhost:3000/scenarios/<SCENARIO_ID>
 ```
 
-### API Endpoints
+### 4. Execute the Scenario
 
-#### Scenarios
+Via API:
+```bash
+curl -X POST http://localhost:3000/scenarios/<SCENARIO_ID>/execute
+```
 
-- `GET /scenarios` - List all scenarios
-- `GET /scenarios/:id` - Get scenario by ID
-- `POST /scenarios` - Create a new scenario
-- `PUT /scenarios/:id` - Update a scenario
-- `DELETE /scenarios/:id` - Delete a scenario
-- `POST /scenarios/:id/execute` - Execute a scenario
-- `GET /scenarios/:id/runs` - Get execution history for a scenario
+Via CLI:
+```bash
+npm run cli run demo-saas-tenant
+```
 
-#### Runs
+### 5. View Execution History
 
-- `GET /runs/:id` - Get run details with logs
+```bash
+curl http://localhost:3000/scenarios/<SCENARIO_ID>/runs
+```
+
+Or via CLI:
+```bash
+npm run cli history demo-saas-tenant
+```
+
+### 6. Check Execution Logs
+
+```bash
+curl http://localhost:3000/runs/<RUN_ID>
+```
+
+Or via CLI:
+```bash
+npm run cli logs <RUN_ID>
+```
 
 ## Scenario Examples
 
-### Example 1: Creating a Demo Tenant in a SaaS Application
+### Example 1: Creating a Demo Tenant (Database)
 
-This scenario creates a complete demo tenant with users, projects, and sample data.
+Creates a complete demo tenant with users and projects:
 
 ```json
 {
   "name": "create-demo-saas-tenant",
-  "description": "Creates a full demo tenant with users and projects for SaaS demo",
+  "description": "Creates a full demo tenant with users and projects",
   "targetType": "DB",
   "targetConfigJson": {
     "connectionString": "postgresql://user:password@localhost:5432/saas_db"
@@ -118,210 +241,40 @@ This scenario creates a complete demo tenant with users, projects, and sample da
         "id": "demo-tenant-001",
         "name": "Acme Corporation",
         "plan": "enterprise",
-        "status": "active",
-        "created_at": "2024-01-01T00:00:00Z"
+        "status": "active"
       }
     },
     {
       "type": "db:insert",
       "table": "users",
       "values": {
-        "id": "user-admin-001",
-        "tenant_id": "demo-tenant-001",
+        "tenant_id": "{{tenants_last_insert.id}}",
         "email": "admin@acme.com",
         "name": "Admin User",
-        "role": "admin",
-        "created_at": "2024-01-01T00:00:00Z"
-      }
-    },
-    {
-      "type": "db:insert",
-      "table": "users",
-      "values": {
-        "id": "user-member-001",
-        "tenant_id": "demo-tenant-001",
-        "email": "john@acme.com",
-        "name": "John Doe",
-        "role": "member",
-        "created_at": "2024-01-02T00:00:00Z"
+        "role": "admin"
       }
     },
     {
       "type": "db:insert",
       "table": "projects",
       "values": {
-        "id": "project-001",
-        "tenant_id": "demo-tenant-001",
-        "name": "Website Redesign",
-        "description": "Redesign company website",
-        "owner_id": "user-admin-001",
-        "status": "in_progress",
-        "created_at": "2024-01-05T00:00:00Z"
-      }
-    },
-    {
-      "type": "db:insert",
-      "table": "tasks",
-      "values": {
-        "id": "task-001",
-        "project_id": "project-001",
-        "title": "Design homepage mockup",
-        "assigned_to": "user-member-001",
-        "status": "completed",
-        "created_at": "2024-01-06T00:00:00Z"
-      }
-    },
-    {
-      "type": "db:insert",
-      "table": "tasks",
-      "values": {
-        "id": "task-002",
-        "project_id": "project-001",
-        "title": "Implement responsive layout",
-        "assigned_to": "user-member-001",
-        "status": "in_progress",
-        "created_at": "2024-01-07T00:00:00Z"
+        "tenant_id": "{{tenants_last_insert.id}}",
+        "owner_id": "{{users_last_insert.id}}",
+        "name": "Website Redesign"
       }
     }
   ]
 }
 ```
 
-### Example 2: Generating Realistic Resident Data for Welfare Facility ERP
+### Example 2: API Integration Test
 
-This scenario creates realistic resident and care plan data for a welfare facility management system.
-
-```json
-{
-  "name": "create-welfare-facility-residents",
-  "description": "Generates realistic resident data for welfare-facility-erp-suite testing",
-  "targetType": "DB",
-  "targetConfigJson": {
-    "connectionString": "postgresql://user:password@localhost:5432/welfare_erp"
-  },
-  "stepsJson": [
-    {
-      "type": "db:insert",
-      "table": "facilities",
-      "values": {
-        "id": "facility-001",
-        "name": "Sunrise Senior Living",
-        "address": "123 Care Street, Springfield",
-        "capacity": 50,
-        "facility_type": "assisted_living",
-        "license_number": "FL-2024-001",
-        "created_at": "2024-01-01T00:00:00Z"
-      }
-    },
-    {
-      "type": "db:insert",
-      "table": "residents",
-      "values": {
-        "id": "resident-001",
-        "facility_id": "facility-001",
-        "first_name": "Margaret",
-        "last_name": "Smith",
-        "date_of_birth": "1945-03-15",
-        "admission_date": "2024-01-15",
-        "room_number": "101A",
-        "care_level": "level_2",
-        "medical_record_number": "MRN-2024-001",
-        "emergency_contact_name": "Robert Smith",
-        "emergency_contact_phone": "555-0101",
-        "emergency_contact_relation": "Son"
-      }
-    },
-    {
-      "type": "db:insert",
-      "table": "care_plans",
-      "values": {
-        "id": "care-plan-001",
-        "resident_id": "resident-001",
-        "plan_type": "comprehensive",
-        "created_by": "staff-001",
-        "created_at": "2024-01-16T00:00:00Z",
-        "review_date": "2024-04-16",
-        "mobility_assistance": true,
-        "medication_management": true,
-        "dietary_restrictions": "Low sodium, diabetic-friendly",
-        "activities_of_daily_living": "Requires assistance with bathing and dressing"
-      }
-    },
-    {
-      "type": "db:insert",
-      "table": "medications",
-      "values": {
-        "id": "med-001",
-        "resident_id": "resident-001",
-        "medication_name": "Metformin",
-        "dosage": "500mg",
-        "frequency": "twice_daily",
-        "prescribed_by": "Dr. Johnson",
-        "start_date": "2024-01-16",
-        "instructions": "Take with meals"
-      }
-    },
-    {
-      "type": "db:insert",
-      "table": "residents",
-      "values": {
-        "id": "resident-002",
-        "facility_id": "facility-001",
-        "first_name": "James",
-        "last_name": "Wilson",
-        "date_of_birth": "1938-07-22",
-        "admission_date": "2024-02-01",
-        "room_number": "102B",
-        "care_level": "level_3",
-        "medical_record_number": "MRN-2024-002",
-        "emergency_contact_name": "Sarah Wilson",
-        "emergency_contact_phone": "555-0202",
-        "emergency_contact_relation": "Daughter"
-      }
-    },
-    {
-      "type": "db:insert",
-      "table": "care_plans",
-      "values": {
-        "id": "care-plan-002",
-        "resident_id": "resident-002",
-        "plan_type": "comprehensive",
-        "created_by": "staff-002",
-        "created_at": "2024-02-02T00:00:00Z",
-        "review_date": "2024-05-02",
-        "mobility_assistance": true,
-        "medication_management": true,
-        "cognitive_support": true,
-        "dietary_restrictions": "Pureed diet",
-        "activities_of_daily_living": "Total assistance required",
-        "behavioral_notes": "Benefits from music therapy sessions"
-      }
-    },
-    {
-      "type": "db:insert",
-      "table": "daily_activities",
-      "values": {
-        "id": "activity-001",
-        "resident_id": "resident-002",
-        "activity_type": "music_therapy",
-        "scheduled_time": "2024-02-03T14:00:00Z",
-        "duration_minutes": 45,
-        "facilitator": "staff-003",
-        "notes": "Participates well, appears relaxed"
-      }
-    }
-  ]
-}
-```
-
-### Example 3: API Integration Test Scenario
-
-This scenario tests a user registration and onboarding flow via API.
+Tests user registration and authentication flow:
 
 ```json
 {
   "name": "api-user-registration-flow",
-  "description": "Tests complete user registration and onboarding via API",
+  "description": "Tests complete user registration via API",
   "targetType": "API",
   "targetConfigJson": {
     "baseUrl": "https://api.example.com",
@@ -337,30 +290,7 @@ This scenario tests a user registration and onboarding flow via API.
       "body": {
         "email": "testuser@example.com",
         "password": "SecurePass123!",
-        "name": "Test User",
-        "company": "Test Company"
-      }
-    },
-    {
-      "type": "api:request",
-      "method": "POST",
-      "path": "/v1/auth/verify-email",
-      "body": {
-        "email": "testuser@example.com",
-        "code": "123456"
-      }
-    },
-    {
-      "type": "api:request",
-      "method": "POST",
-      "path": "/v1/onboarding/profile",
-      "headers": {
-        "Authorization": "Bearer {{last_response.data.token}}"
-      },
-      "body": {
-        "role": "developer",
-        "team_size": "1-10",
-        "use_case": "testing"
+        "name": "Test User"
       }
     },
     {
@@ -375,125 +305,250 @@ This scenario tests a user registration and onboarding flow via API.
 }
 ```
 
-### Example 4: Using Template Variables
+### Example 3: Welfare Facility Resident Data
 
-Template variables allow you to reference data from previous steps:
+Generates realistic data for healthcare/welfare systems:
 
 ```json
 {
-  "name": "create-order-with-items",
-  "description": "Creates an order and references the inserted ID in subsequent steps",
+  "name": "create-welfare-facility-residents",
+  "description": "Generates realistic resident data for welfare-facility-erp-suite",
   "targetType": "DB",
   "targetConfigJson": {
-    "connectionString": "postgresql://user:password@localhost:5432/shop_db"
+    "connectionString": "postgresql://user:password@localhost:5432/welfare_erp"
   },
   "stepsJson": [
     {
       "type": "db:insert",
-      "table": "orders",
+      "table": "facilities",
       "values": {
-        "customer_id": "cust-123",
-        "status": "pending",
-        "total": 0,
-        "created_at": "2024-01-01T00:00:00Z"
+        "id": "facility-001",
+        "name": "Sunrise Senior Living",
+        "capacity": 50,
+        "facility_type": "assisted_living"
       }
     },
     {
       "type": "db:insert",
-      "table": "order_items",
+      "table": "residents",
       "values": {
-        "order_id": "{{orders_last_insert.id}}",
-        "product_id": "prod-001",
-        "quantity": 2,
-        "price": 29.99
+        "facility_id": "{{facilities_last_insert.id}}",
+        "first_name": "Margaret",
+        "last_name": "Smith",
+        "date_of_birth": "1945-03-15",
+        "room_number": "101A",
+        "care_level": "level_2"
       }
     },
     {
       "type": "db:insert",
-      "table": "order_items",
+      "table": "care_plans",
       "values": {
-        "order_id": "{{orders_last_insert.id}}",
-        "product_id": "prod-002",
-        "quantity": 1,
-        "price": 49.99
-      }
-    },
-    {
-      "type": "db:update",
-      "table": "orders",
-      "where": {
-        "id": "{{orders_last_insert.id}}"
-      },
-      "values": {
-        "total": 109.97
+        "resident_id": "{{residents_last_insert.id}}",
+        "plan_type": "comprehensive",
+        "mobility_assistance": true,
+        "medication_management": true
       }
     }
   ]
 }
 ```
 
-## Creating Scenarios via API
-
-You can create scenarios programmatically via the REST API:
-
-```bash
-curl -X POST http://localhost:3000/scenarios \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "my-test-scenario",
-    "description": "My test scenario",
-    "targetType": "DB",
-    "targetConfigJson": {
-      "connectionString": "postgresql://user:password@localhost:5432/mydb"
-    },
-    "stepsJson": [
-      {
-        "type": "db:insert",
-        "table": "users",
-        "values": {
-          "email": "test@example.com",
-          "name": "Test User"
-        }
-      }
-    ]
-  }'
-```
-
-## Development
-
-### Build the project
-```bash
-npm run build
-```
-
-### Run tests
-```bash
-npm test
-```
-
-### View Prisma Studio
-```bash
-npm run prisma:studio
-```
-
 ## Architecture
 
 ```
 src/
-├── adapters/
-│   ├── db-adapter.ts      # PostgreSQL adapter
-│   └── api-adapter.ts     # HTTP API adapter
-├── routes/
-│   └── scenarios.ts       # Fastify routes
-├── types/
-│   └── index.ts          # TypeScript type definitions
-├── utils/
-│   ├── db.ts             # Prisma client
-│   └── executor.ts       # Scenario execution engine
-├── cli.ts                # CLI tool
-└── server.ts             # Fastify server
+├── adapters/           # Execution adapters
+│   ├── db-adapter.ts   # PostgreSQL operations (insert/update/delete)
+│   └── api-adapter.ts  # HTTP API requests
+├── routes/             # Fastify routes
+│   └── scenarios.ts    # Scenario CRUD + execution endpoints
+├── types/              # TypeScript type definitions
+│   └── index.ts        # Shared types and interfaces
+├── utils/              # Utilities
+│   ├── db.ts           # Prisma client and connection
+│   ├── executor.ts     # Scenario execution engine
+│   └── error-handler.ts # Centralized error handling
+├── cli.ts              # CLI tool
+└── server.ts           # Fastify server entry point
+
+prisma/
+├── schema.prisma       # Database schema
+└── migrations/         # Database migrations
+
+tests/
+└── **/__tests__/       # Vitest test files (24 tests)
 ```
+
+## Template Variables
+
+The service supports powerful template variables for chaining data across steps:
+
+### Database Operations
+
+After each `db:insert`, the inserted row is stored as `{{table_name_last_insert.*}}`:
+
+```json
+{
+  "type": "db:insert",
+  "table": "users",
+  "values": { "email": "test@example.com" }
+}
+// Result available as: {{users_last_insert.id}}, {{users_last_insert.email}}, etc.
+```
+
+### API Operations
+
+After each API request, the response is stored as `{{last_response.*}}`:
+
+```json
+{
+  "type": "api:request",
+  "method": "POST",
+  "path": "/auth/login",
+  "body": { "email": "test@example.com" }
+}
+// Response available as: {{last_response.data.token}}, {{last_response.status}}, etc.
+```
+
+### Nested Paths
+
+Variables support nested object access:
+
+```
+{{users_last_insert.profile.address.city}}
+{{last_response.data.user.settings.theme}}
+```
+
+## Testing
+
+The project includes comprehensive test coverage:
+
+```bash
+# Run all tests (24 tests)
+npm test
+
+# Run tests in watch mode
+npm run test:watch
+
+# Generate coverage report
+npm run test:coverage
+```
+
+Test categories:
+- **Adapter Tests**: Variable interpolation, URL building, value resolution
+- **Type Tests**: Scenario structure validation, step type checking
+- **Integration Tests**: End-to-end scenario workflows
+
+## Docker Deployment
+
+### Full Stack
+
+```bash
+# Start PostgreSQL + App
+docker compose up -d
+
+# View logs
+docker compose logs -f app
+
+# Stop all services
+docker compose down
+```
+
+### Production Build
+
+```bash
+# Build the Docker image
+docker build -t test-data-factory-service .
+
+# Run container
+docker run -p 3000:3000 \
+  -e DATABASE_URL="postgresql://..." \
+  test-data-factory-service
+```
+
+## Future Extensions
+
+### Planned Features
+
+1. **Additional Adapters**
+   - MongoDB support
+   - Redis operations
+   - GraphQL API testing
+   - gRPC support
+
+2. **Enhanced Templating**
+   - Faker.js integration for realistic data generation
+   - Custom functions (e.g., `{{uuid()}}`, `{{timestamp()}}`)
+   - Conditional steps based on previous results
+
+3. **Orchestration**
+   - Parallel step execution
+   - Rollback/cleanup steps
+   - Scenario dependencies and composition
+   - Scheduled scenario runs
+
+4. **UI Dashboard**
+   - Web-based scenario editor
+   - Visual step builder
+   - Real-time execution monitoring
+   - Historical analytics and reporting
+
+5. **Advanced Features**
+   - Scenario versioning
+   - Environment-specific configurations
+   - Shared scenario library
+   - Export/import scenarios as YAML
+
+6. **Integration**
+   - CI/CD plugins (GitHub Actions, GitLab CI)
+   - Webhook notifications
+   - Slack/Discord integration
+   - OpenAPI spec import
+
+## API Documentation
+
+### Health Check
+
+```
+GET /health
+Response: { "status": "ok", "timestamp": "2024-11-18T..." }
+```
+
+### Scenarios
+
+```
+GET    /scenarios           # List all scenarios
+POST   /scenarios           # Create scenario
+GET    /scenarios/:id       # Get scenario details
+PUT    /scenarios/:id       # Update scenario
+DELETE /scenarios/:id       # Delete scenario
+POST   /scenarios/:id/execute  # Execute scenario
+GET    /scenarios/:id/runs  # Get execution history
+```
+
+### Runs
+
+```
+GET    /runs/:id            # Get run details with logs
+```
+
+## Contributing
+
+Contributions are welcome! Please ensure:
+- All tests pass (`npm test`)
+- Code is linted (`npm run lint`)
+- TypeScript compiles (`npm run build`)
 
 ## License
 
 MIT
+
+---
+
+**Quick Links:**
+- [Getting Started](#getting-started)
+- [Example Flow](#example-flow-vertical-slice)
+- [Scenario Examples](#scenario-examples)
+- [API Documentation](#api-documentation)
+- [Quick Start Guide](./QUICKSTART.md)

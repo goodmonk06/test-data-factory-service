@@ -3,6 +3,7 @@ import cors from '@fastify/cors';
 import dotenv from 'dotenv';
 import { connectDB, disconnectDB } from './utils/db';
 import { scenarioRoutes } from './routes/scenarios';
+import { globalErrorHandler } from './utils/error-handler';
 
 dotenv.config();
 
@@ -15,6 +16,9 @@ async function startServer() {
       level: process.env.NODE_ENV === 'development' ? 'info' : 'warn',
     },
   });
+
+  // Register error handler
+  fastify.setErrorHandler(globalErrorHandler);
 
   // Register CORS
   await fastify.register(cors, {
